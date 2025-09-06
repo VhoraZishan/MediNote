@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 210 20% 98%;
+    --foreground: 210 20% 14%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 210 20% 14%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 210 20% 14%;
+
+    --primary: 195 85% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 20% 96%;
+    --secondary-foreground: 210 20% 14%;
+
+    --muted: 210 20% 96%;
+    --muted-foreground: 210 10% 50%;
+
+    --accent: 168 76% 42%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 20% 90%;
+    --input: 210 20% 90%;
+    --ring: 195 85% 50%;
+
+    --radius: 0.75rem;
+
+    --medical-blue: 195 85% 50%;
+    --medical-green: 168 76% 42%;
+    --medical-red: 0 84% 60%;
+    --medical-gray: 210 10% 50%;
+    --recording-pulse: 0 100% 50%;
+
+    --sidebar-background: 210 20% 98%;
+    --sidebar-foreground: 210 20% 20%;
+    --sidebar-primary: 195 85% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 20% 96%;
+    --sidebar-accent-foreground: 210 20% 20%;
+    --sidebar-border: 210 20% 90%;
+    --sidebar-ring: 195 85% 50%;
+  }
+
+  .dark {
+    --background: 210 20% 5%;
+    --foreground: 210 20% 95%;
+
+    --card: 210 20% 8%;
+    --card-foreground: 210 20% 95%;
+
+    --popover: 210 20% 8%;
+    --popover-foreground: 210 20% 95%;
+
+    --primary: 195 85% 55%;
+    --primary-foreground: 210 20% 5%;
+
+    --secondary: 210 20% 12%;
+    --secondary-foreground: 210 20% 95%;
+
+    --muted: 210 20% 12%;
+    --muted-foreground: 210 10% 60%;
+
+    --accent: 168 76% 50%;
+    --accent-foreground: 210 20% 5%;
+
+    --destructive: 0 84% 65%;
+    --destructive-foreground: 210 20% 5%;
+
+    --border: 210 20% 15%;
+    --input: 210 20% 15%;
+    --ring: 195 85% 55%;
+
+    --medical-blue: 195 85% 55%;
+    --medical-green: 168 76% 50%;
+    --medical-red: 0 84% 65%;
+    --medical-gray: 210 10% 60%;
+    --recording-pulse: 0 100% 60%;
+
+    --sidebar-background: 210 20% 8%;
+    --sidebar-foreground: 210 20% 85%;
+    --sidebar-primary: 195 85% 55%;
+    --sidebar-primary-foreground: 210 20% 5%;
+    --sidebar-accent: 210 20% 12%;
+    --sidebar-accent-foreground: 210 20% 85%;
+    --sidebar-border: 210 20% 15%;
+    --sidebar-ring: 195 85% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+}
+
+/* Medical UI specific styles */
+@layer components {
+  .recording-pulse {
+    animation: pulse-red 2s infinite;
+  }
+  
+  @keyframes pulse-red {
+    0%, 100% {
+      background-color: hsl(var(--recording-pulse));
+      opacity: 1;
+    }
+    50% {
+      background-color: hsl(var(--recording-pulse));
+      opacity: 0.5;
+    }
+  }
+
+  .soap-section {
+    @apply border border-border rounded-lg p-4 bg-card;
+  }
+
+  .medical-highlight {
+    @apply bg-accent/20 text-accent-foreground px-2 py-1 rounded-md text-sm font-medium;
+  }
+}
