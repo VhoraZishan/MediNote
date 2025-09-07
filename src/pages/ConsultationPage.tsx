@@ -1,22 +1,37 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useAuth } from '@/components/auth/AuthProvider';
-import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/components/ui/use-toast';
-import { ArrowLeft, User, Calendar, Clock, Mic, FileText, CheckCircle } from 'lucide-react';
-import { AudioRecorder } from '@/components/recording/AudioRecorder';
-import { SOAPEditor } from '@/components/notes/SOAPEditor';
+import React, { useState, useEffect, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/components/ui/use-toast";
+import {
+  ArrowLeft,
+  User,
+  Calendar,
+  Clock,
+  Mic,
+  FileText,
+  Upload,
+  CheckCircle,
+} from "lucide-react";
+import { AudioRecorder } from "@/components/recording/AudioRecorder";
+import { SOAPEditor } from "@/components/notes/SOAPEditor";
 
 interface Consultation {
   id: string;
   patient_name: string;
   patient_id: string;
   consultation_date: string;
-  status: 'in_progress' | 'completed' | 'cancelled';
+  status: "in_progress" | "completed" | "cancelled";
   duration_minutes: number | null;
 }
 
@@ -44,14 +59,14 @@ export const ConsultationPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState('recording');
+  const [activeTab, setActiveTab] = useState("recording");
 
   const fetchConsultation = useCallback(async () => {
     try {
       const { data, error } = await supabase
-        .from('consultations')
-        .select('*')
-        .eq('id', id)
+        .from("consultations")
+        .select("*")
+        .eq("id", id)
         .single();
 
       if (error) throw error;
@@ -62,25 +77,23 @@ export const ConsultationPage: React.FC = () => {
         description: "Failed to load consultation",
         variant: "destructive",
       });
-      navigate('/');
+      navigate("/");
     }
   }, [id, navigate, toast]);
 
   const fetchMedicalNote = useCallback(async () => {
     try {
       const { data, error } = await supabase
-        .from('medical_notes')
-        .select('*')
-        .eq('consultation_id', id)
+        .from("medical_notes")
+        .select("*")
+        .eq("consultation_id", id)
         .maybeSingle();
 
-  if (error && ((error as DBError).code ?? '') !== 'PGRST116') throw error;
+      if (error && ((error as DBError).code ?? "") !== "PGRST116") throw error;
       setMedicalNote(data as MedicalNote);
-      if (data) setActiveTab('notes');
+      if (data) setActiveTab("notes");
     } catch (error: unknown) {
-      const e = error as Error;
-      // Log and continue
-      console.error('Error fetching medical note:', e.message || e);
+      console.error("Error fetching medical note:", error);
     } finally {
       setLoading(false);
     }
@@ -93,40 +106,33 @@ export const ConsultationPage: React.FC = () => {
     }
   }, [id, fetchConsultation, fetchMedicalNote]);
 
-  // (fetchConsultation and fetchMedicalNote implemented above with useCallback)
-
-  const handleTranscriptionComplete = async (transcript: string, audioBlob: Blob) => {
+  // 🔑 Centralized handler for transcript
+  const handleTranscriptionComplete = async (
+    transcript: string,
+    audioBlob?: Blob
+  ) => {
     setIsProcessing(true);
     try {
-      console.log('Received transcript:', transcript);
-      console.log('Transcript length:', transcript?.length || 0);
-      
-      // Check if transcript is valid
-      if (!transcript || transcript.trim().length === 0) {
-        console.log('No transcript received, creating note with placeholder text');
-        // Create a note with placeholder text instead of failing
-        const placeholderText = 'Audio recorded but transcription failed. Please review the audio manually.';
-        
+      if (!transcript?.trim()) {
+        const placeholderText =
+          "Audio recorded but transcription failed. Please review manually.";
         const { data, error } = await supabase
-          .from('medical_notes')
+          .from("medical_notes")
           .upsert({
             consultation_id: id,
             subjective: placeholderText,
-            objective: '',
-            assessment: '',
-            plan: '',
-            raw_transcript: 'Transcription failed',
+            objective: "",
+            assessment: "",
+            plan: "",
+            raw_transcript: "Transcription failed",
             extracted_entities: {},
             is_reviewed: false,
           })
           .select()
           .single();
-
         if (error) throw error;
-
         setMedicalNote(data as MedicalNote);
-        setActiveTab('notes');
-        
+        setActiveTab("notes");
         toast({
           title: "Note Created",
           description: "Audio recorded but transcription failed. Please review manually.",
@@ -135,20 +141,29 @@ export const ConsultationPage: React.FC = () => {
         return;
       }
 
-  // Keep the full raw transcript as the note content. Do not simplify or remove medical terms.
-  const simplified = transcript;
+      // ✅ Call Edge Function
+      const { data: fnResponse, error: fnError } =
+        await supabase.functions.invoke("generate-soap-note", {
+          body: { transcript },
+        });
 
-      // Save to database (store simplified text in subjective and raw transcript)
+      if (fnError) throw fnError;
+      console.log("Edge function response:", fnResponse);
+
+      const soap = fnResponse?.soap || {};
+      const medicalTerms = fnResponse?.medicalTerms || {};
+
+      // ✅ Save SOAP info to Supabase
       const { data, error } = await supabase
-        .from('medical_notes')
+        .from("medical_notes")
         .upsert({
           consultation_id: id,
-          subjective: simplified || '',
-          objective: '',
-          assessment: '',
-          plan: '',
+          subjective: soap.subjective || transcript,
+          objective: soap.objective || "",
+          assessment: soap.assessment || "",
+          plan: soap.plan || "",
           raw_transcript: transcript,
-          extracted_entities: {},
+          extracted_entities: medicalTerms,
           is_reviewed: false,
         })
         .select()
@@ -157,24 +172,14 @@ export const ConsultationPage: React.FC = () => {
       if (error) throw error;
 
       setMedicalNote(data as MedicalNote);
-      setActiveTab('notes');
+      setActiveTab("notes");
 
-  // Trigger download of transcript text
-  const blob = new Blob([simplified || ''], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `transcript-${consultation?.patient_name || 'patient'}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      
       toast({
-        title: "Transcript Simplified",
-        description: "Download ready and note saved.",
+        title: "SOAP Note Generated",
+        description: "Transcript processed into structured SOAP notes.",
       });
-  } catch (error) {
+    } catch (error) {
+      console.error("Transcription processing error:", error);
       toast({
         title: "Processing Error",
         description: "Failed to generate medical note. Please try again.",
@@ -185,9 +190,54 @@ export const ConsultationPage: React.FC = () => {
     }
   };
 
+  // 📂 Handle transcript file upload
+  const handleTranscriptUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    await handleTranscriptionComplete(text);
+  };
+
+  // 🎙️ Handle audio file upload (will transcribe first via your audio function)
+  const handleAudioUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsProcessing(true);
+
+      // TODO: Replace with your existing `transcribeAudio` function
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const resp = await fetch("/api/transcribe-audio", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await resp.json();
+      const transcript = result.transcript;
+
+      await handleTranscriptionComplete(transcript, file);
+    } catch (err) {
+      console.error("Audio upload error:", err);
+      toast({
+        title: "Upload Error",
+        description: "Failed to transcribe audio file",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleSaveNote = async (note: MedicalNote) => {
     const { error } = await supabase
-      .from('medical_notes')
+      .from("medical_notes")
       .update({
         subjective: note.subjective,
         objective: note.objective,
@@ -195,56 +245,59 @@ export const ConsultationPage: React.FC = () => {
         plan: note.plan,
         is_reviewed: true,
       })
-      .eq('id', note.id);
+      .eq("id", note.id);
 
     if (error) throw error;
-    
-    setMedicalNote(prev => prev ? { ...prev, ...note, is_reviewed: true } : null);
+    setMedicalNote((prev) =>
+      prev ? { ...prev, ...note, is_reviewed: true } : null
+    );
   };
 
   const handleCompleteConsultation = async () => {
     try {
       const { error } = await supabase
-        .from('consultations')
-        .update({ status: 'completed' })
-        .eq('id', id);
+        .from("consultations")
+        .update({ status: "completed" })
+        .eq("id", id);
 
       if (error) throw error;
 
-      setConsultation(prev => prev ? { ...prev, status: 'completed' } : null);
-      
+      setConsultation((prev) =>
+        prev ? { ...prev, status: "completed" } : null
+      );
+
       toast({
         title: "Consultation Completed",
         description: "Consultation has been marked as completed.",
       });
     } catch (error: unknown) {
-      const e = error as Error;
+      console.error("Complete consultation error:", error);
       toast({
         title: "Error",
         description: "Failed to complete consultation",
         variant: "destructive",
       });
-      console.error('Complete consultation error:', e.message || e);
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+  const formatDate = (dateString: string) =>
+    new Date(dateString).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
-  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'in_progress':
+      case "in_progress":
         return <Badge variant="default">In Progress</Badge>;
-      case 'completed':
-        return <Badge className="bg-accent text-accent-foreground">Completed</Badge>;
-      case 'cancelled':
+      case "completed":
+        return (
+          <Badge className="bg-accent text-accent-foreground">Completed</Badge>
+        );
+      case "cancelled":
         return <Badge variant="destructive">Cancelled</Badge>;
       default:
         return <Badge variant="secondary">{status}</Badge>;
@@ -269,7 +322,7 @@ export const ConsultationPage: React.FC = () => {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <Button variant="ghost" onClick={() => navigate('/')}>
+              <Button variant="ghost" onClick={() => navigate("/")}>
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Dashboard
               </Button>
@@ -284,15 +337,16 @@ export const ConsultationPage: React.FC = () => {
             </div>
             <div className="flex items-center space-x-4">
               {getStatusBadge(consultation.status)}
-              {consultation.status === 'in_progress' && medicalNote?.is_reviewed && (
-                <Button
-                  onClick={handleCompleteConsultation}
-                  className="bg-accent hover:bg-accent/90"
-                >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Complete Consultation
-                </Button>
-              )}
+              {consultation.status === "in_progress" &&
+                medicalNote?.is_reviewed && (
+                  <Button
+                    onClick={handleCompleteConsultation}
+                    className="bg-accent hover:bg-accent/90"
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Complete Consultation
+                  </Button>
+                )}
             </div>
           </div>
         </div>
@@ -314,7 +368,9 @@ export const ConsultationPage: React.FC = () => {
                 <Calendar className="h-5 w-5 text-muted-foreground" />
                 <div>
                   <p className="text-sm font-medium">Date</p>
-                  <p className="text-lg">{formatDate(consultation.consultation_date)}</p>
+                  <p className="text-lg">
+                    {formatDate(consultation.consultation_date)}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center space-x-3">
@@ -322,7 +378,9 @@ export const ConsultationPage: React.FC = () => {
                 <div>
                   <p className="text-sm font-medium">Duration</p>
                   <p className="text-lg">
-                    {consultation.duration_minutes ? `${consultation.duration_minutes} min` : 'In progress'}
+                    {consultation.duration_minutes
+                      ? `${consultation.duration_minutes} min`
+                      : "In progress"}
                   </p>
                 </div>
               </div>
@@ -332,48 +390,92 @@ export const ConsultationPage: React.FC = () => {
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="recording" className="flex items-center space-x-2">
               <Mic className="h-4 w-4" />
               <span>Recording</span>
             </TabsTrigger>
-            <TabsTrigger value="notes" className="flex items-center space-x-2" disabled={!medicalNote}>
+            <TabsTrigger value="upload" className="flex items-center space-x-2">
+              <Upload className="h-4 w-4" />
+              <span>Upload</span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="notes"
+              className="flex items-center space-x-2"
+              disabled={!medicalNote}
+            >
               <FileText className="h-4 w-4" />
               <span>Medical Notes</span>
             </TabsTrigger>
           </TabsList>
 
+          {/* Recording */}
           <TabsContent value="recording" className="mt-6">
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Audio Recording</CardTitle>
-                  <CardDescription>
-                    Record the consultation to generate structured medical notes
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <AudioRecorder
-                    onTranscriptionComplete={handleTranscriptionComplete}
-                    isProcessing={isProcessing}
-                  />
-                </CardContent>
-              </Card>
-
-              {isProcessing && (
-                <Card>
-                  <CardContent className="p-8 text-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-                    <p className="text-muted-foreground">Processing audio and generating SOAP note...</p>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      This may take a few moments while we transcribe and analyze your consultation.
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Audio Recording</CardTitle>
+                <CardDescription>
+                  Record the consultation to generate structured medical notes
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <AudioRecorder
+                  onTranscriptionComplete={handleTranscriptionComplete}
+                  isProcessing={isProcessing}
+                />
+              </CardContent>
+            </Card>
           </TabsContent>
 
+          {/* Upload */}
+          <TabsContent value="upload" className="mt-6 space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Upload Transcript</CardTitle>
+                <CardDescription>
+                  Upload a text transcript to generate SOAP notes
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <input
+                  type="file"
+                  accept=".txt"
+                  onChange={handleTranscriptUpload}
+                  className="block w-full text-sm text-muted-foreground
+                             file:mr-4 file:py-2 file:px-4
+                             file:rounded-md file:border-0
+                             file:text-sm file:font-semibold
+                             file:bg-primary file:text-white
+                             hover:file:bg-primary/80"
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Upload Audio File</CardTitle>
+                <CardDescription>
+                  Upload an audio recording (e.g., .mp3, .wav) to transcribe and
+                  generate SOAP notes
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={handleAudioUpload}
+                  className="block w-full text-sm text-muted-foreground
+                             file:mr-4 file:py-2 file:px-4
+                             file:rounded-md file:border-0
+                             file:text-sm file:font-semibold
+                             file:bg-primary file:text-white
+                             hover:file:bg-primary/80"
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Notes */}
           <TabsContent value="notes" className="mt-6">
             {medicalNote ? (
               <SOAPEditor
@@ -387,7 +489,9 @@ export const ConsultationPage: React.FC = () => {
                 <CardContent className="p-8 text-center">
                   <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                   <p className="text-muted-foreground">No medical notes yet</p>
-                  <p className="text-sm text-muted-foreground">Record a consultation to generate SOAP notes</p>
+                  <p className="text-sm text-muted-foreground">
+                    Record or upload a consultation to generate SOAP notes
+                  </p>
                 </CardContent>
               </Card>
             )}
